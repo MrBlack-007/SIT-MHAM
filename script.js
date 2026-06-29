@@ -203,11 +203,44 @@ function renderCart() {
     cartDiv.innerHTML = "";
     for(let i = 0; i < currentCart.length; i++) {
         let item = currentCart[i];
+        let prod = null;
+        for(let p = 0; p < products.length; p++) {
+            if(products[p].name === item.name) { prod = products[p]; break; }
+        }
+        let maxStock = prod ? prod.stock : 9999;
         let div = document.createElement('div');
         div.className = "cart-row";
-        div.innerHTML = "<div><b>" + item.name + "</b><br><small>" + item.price.toLocaleString() + " K</small></div><div><button class='qty-btn' onclick='changeQty(" + i + ", -1)'>-</button><span><b>" + item.qty + "</b></span><button class='qty-btn' onclick='changeQty(" + i + ", 1)'>+</button></div><div><b>" + (item.price * item.qty).toLocaleString() + " K</b></div>";
+        div.innerHTML =
+            "<div style='flex:1'><b>" + item.name + "</b><br><small>" + item.price.toLocaleString() + " K</small></div>" +
+            "<div style='display:flex;align-items:center;gap:4px;'>" +
+                "<button class='qty-btn' onclick='changeQty(" + i + ",-1)'>−</button>" +
+                "<input class='cart-qty-input' type='number' inputmode='numeric' min='1' max='" + maxStock + "' value='" + item.qty + "' data-idx='" + i + "' onfocus='this.select()' oninput='setQtyManual(this)' onblur='setQtyManual(this)'>" +
+                "<button class='qty-btn' onclick='changeQty(" + i + ",1)'>+</button>" +
+            "</div>" +
+            "<div style='min-width:64px;text-align:right;'><b id='cart-row-total-" + i + "'>" + (item.price * item.qty).toLocaleString() + " K</b></div>";
         cartDiv.appendChild(div);
     }
+    calculateSellPage();
+}
+
+function setQtyManual(input) {
+    let idx = parseInt(input.dataset.idx);
+    if(isNaN(idx) || idx < 0 || idx >= currentCart.length) return;
+    let val = parseInt(input.value);
+    if(isNaN(val) || val < 1) { input.value = currentCart[idx].qty; return; }
+    let item = currentCart[idx];
+    let prod = null;
+    for(let i = 0; i < products.length; i++) {
+        if(products[i].name === item.name) { prod = products[i]; break; }
+    }
+    if(prod && val > prod.stock) {
+        val = prod.stock;
+        input.value = val;
+        showAlert(item.name + " — stock " + prod.stock + " ခုသာ ကျန်တော့တယ်!", "Stock Limit");
+    }
+    currentCart[idx].qty = val;
+    let rowTotal = document.getElementById('cart-row-total-' + idx);
+    if(rowTotal) rowTotal.textContent = (item.price * val).toLocaleString() + " K";
     calculateSellPage();
 }
 
@@ -223,9 +256,7 @@ function changeQty(idx, amt) {
         return;
     }
     item.qty += amt;
-    if(item.qty <= 0) {
-        currentCart.splice(idx, 1);
-    }
+    if(item.qty <= 0) { currentCart.splice(idx, 1); }
     renderCart();
 }
 
@@ -653,26 +684,10 @@ function renderReports() {
         netEl.innerText = net.toLocaleString() + " K";
         netEl.style.color = net >= 0 ? "#2e7d32" : "#c62828";
     }
-
-    // Warehouse & car stock cost (real-time, not date-filtered)
-    let whCost = 0, whQty = 0, carCost = 0, carQty = 0;
-    for(let i = 0; i < products.length; i++) {
-        let p = products[i];
-        whCost  += (p.warehouseStock || 0) * (p.cost || 0);
-        whQty   += (p.warehouseStock || 0);
-        carCost += (p.stock || 0) * (p.cost || 0);
-        carQty  += (p.stock || 0);
-    }
-    let whEl    = document.getElementById('rep-warehouse-cost');
-    let whQEl   = document.getElementById('rep-warehouse-qty');
-    let carEl   = document.getElementById('rep-car-cost');
-    let carQEl  = document.getElementById('rep-car-qty');
-    let totEl   = document.getElementById('rep-total-stock-value');
-    if(whEl)  whEl.innerText  = whCost.toLocaleString()  + " K";
-    if(whQEl) whQEl.innerText = whQty  + " ခု";
-    if(carEl) carEl.innerText = carCost.toLocaleString() + " K";
-    if(carQEl)carQEl.innerText= carQty + " ခု";
-    if(totEl) totEl.innerText = (whCost + carCost).toLocaleString() + " K";
+    let whC=0,whQ=0,caC=0,caQ=0;
+    for(let i=0;i<products.length;i++){let p=products[i];whC+=(p.warehouseStock||0)*(p.cost||0);whQ+=(p.warehouseStock||0);caC+=(p.stock||0)*(p.cost||0);caQ+=(p.stock||0);}
+    let e1=document.getElementById('rep-warehouse-cost'),e2=document.getElementById('rep-warehouse-qty'),e3=document.getElementById('rep-car-cost'),e4=document.getElementById('rep-car-qty'),e5=document.getElementById('rep-total-stock-value');
+    if(e1)e1.innerText=whC.toLocaleString()+" K";if(e2)e2.innerText=whQ+" ခု";if(e3)e3.innerText=caC.toLocaleString()+" K";if(e4)e4.innerText=caQ+" ခု";if(e5)e5.innerText=(whC+caC).toLocaleString()+" K";
     
     // Transaction history
     let container = document.getElementById('report-sales-list');
@@ -1077,184 +1092,72 @@ function resetProductForm() {
 }
 
 // ========== WAREHOUSE ==========
-
-let _warehouseReceiveIdx = -1;
-let _warehouseLoadIdx    = -1;
-
-function setProductTab(tab) {
-    let carSec = document.getElementById('car-stock-section');
-    let whSec  = document.getElementById('warehouse-section');
-    let tabCar = document.getElementById('tab-car');
-    let tabWh  = document.getElementById('tab-warehouse');
-    if(carSec) carSec.style.display = tab === 'car' ? 'block' : 'none';
-    if(whSec)  whSec.style.display  = tab === 'warehouse' ? 'block' : 'none';
-    if(tabCar) tabCar.className = 'report-tab' + (tab === 'car' ? ' active' : '');
-    if(tabWh)  tabWh.className  = 'report-tab' + (tab === 'warehouse' ? ' active' : '');
-    if(tab === 'warehouse') renderWarehouseList();
+let _whRIdx=-1,_whLIdx=-1;
+function setProductTab(tab){
+    let cs=document.getElementById('car-stock-section'),ws=document.getElementById('warehouse-section'),tc=document.getElementById('tab-car'),tw=document.getElementById('tab-warehouse');
+    if(cs)cs.style.display=tab==='car'?'block':'none';if(ws)ws.style.display=tab==='warehouse'?'block':'none';
+    if(tc)tc.className='report-tab'+(tab==='car'?' active':'');if(tw)tw.className='report-tab'+(tab==='warehouse'?' active':'');
+    if(tab==='warehouse')renderWarehouseList();
 }
-
-function renderWarehouseList() {
-    let wList = document.getElementById('warehouse-list');
-    if(!wList) return;
-    wList.innerHTML = '';
-    if(!products || products.length === 0) {
-        wList.innerHTML = '<li style="text-align:center;color:#999;display:block;">Product မရှိသေးပါဘူး — ကားပေါ် tab မှာ ထည့်ပါ</li>';
-        return;
-    }
-    for(let i = 0; i < products.length; i++) {
-        let p = products[i];
-        let wStock  = p.warehouseStock || 0;
-        let cStock  = p.stock || 0;
-        let wColor  = wStock === 0 ? '#e53935' : (wStock <= (p.alertLimit || 5) ? '#f57c00' : '#1e88e5');
-        let li = document.createElement('li');
-        li.style.cssText = 'display:block;padding:14px;margin-bottom:10px;border-radius:16px;border:1px solid #eef1ee;list-style:none;';
-        li.innerHTML =
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
-                '<div>' +
-                    '<b style="font-size:15px;">' + p.name + '</b><br>' +
-                    '<span style="color:#666;font-size:12px;">Cost: ' + (p.cost||0).toLocaleString() + ' K &nbsp;|&nbsp; Sell: ' + (p.price||0).toLocaleString() + ' K</span>' +
-                '</div>' +
-                '<div style="text-align:right;">' +
-                    '<div style="font-size:11px;color:#666;">🏭 ဂိုထောင်</div>' +
-                    '<b style="font-size:22px;color:' + wColor + ';">' + wStock + '</b>' +
-                    '<div style="font-size:11px;color:#666;">🚐 ကားပေါ်: <b>' + cStock + '</b></div>' +
-                '</div>' +
-            '</div>' +
-            '<div style="display:flex;gap:8px;">' +
-                '<button style="flex:1;padding:10px;border:none;border-radius:30px;background:linear-gradient(135deg,#1e88e5,#1257a0);color:white;font-weight:bold;font-size:13px;cursor:pointer;" onclick="openLoadToCarModal(' + i + ')">🚐 ကားပေါ်တင်</button>' +
-                '<button style="flex:1;padding:10px;border:none;border-radius:30px;background:linear-gradient(135deg,#2e7d32,#14532d);color:white;font-weight:bold;font-size:13px;cursor:pointer;" onclick="openReceiveWarehouseModal(' + i + ')">📦 ဂိုထောင်ထည့်</button>' +
-            '</div>';
+function renderWarehouseList(){
+    let wList=document.getElementById('warehouse-list');if(!wList)return;wList.innerHTML='';
+    if(!products||products.length===0){wList.innerHTML='<li style="display:block;text-align:center;color:#999;">Product မရှိသေးပါဘူး</li>';return;}
+    for(let i=0;i<products.length;i++){
+        let p=products[i],wS=p.warehouseStock||0,cS=p.stock||0;
+        let wC=wS===0?'#e53935':(wS<=(p.alertLimit||5)?'#f57c00':'#1e88e5');
+        let li=document.createElement('li');
+        li.style.cssText='display:block;padding:14px;margin-bottom:10px;border-radius:16px;border:1px solid #eef1ee;list-style:none;';
+        li.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><div><b style="font-size:15px;">'+p.name+'</b><br><span style="color:#666;font-size:12px;">Cost: '+(p.cost||0).toLocaleString()+' K | Sell: '+(p.price||0).toLocaleString()+' K</span></div><div style="text-align:right;"><div style="font-size:11px;color:#666;">🏭 ဂိုထောင်</div><b style="font-size:22px;color:'+wC+';">'+wS+'</b><div style="font-size:11px;color:#666;">🚐 ကားပေါ်: <b>'+cS+'</b></div></div></div>'
+            +'<div style="display:flex;gap:8px;"><button style="flex:1;padding:10px;border:none;border-radius:30px;background:linear-gradient(135deg,#1e88e5,#1257a0);color:white;font-weight:bold;font-size:13px;cursor:pointer;" onclick="openLoadToCarModal('+i+')">🚐 ကားပေါ်တင်</button><button style="flex:1;padding:10px;border:none;border-radius:30px;background:linear-gradient(135deg,#2e7d32,#14532d);color:white;font-weight:bold;font-size:13px;cursor:pointer;" onclick="openReceiveWarehouseModal('+i+')">📦 ဂိုထောင်ထည့်</button></div>';
         wList.appendChild(li);
     }
 }
-
-function openLoadToCarModal(idx) {
-    let p = products[idx];
-    let wStock = p.warehouseStock || 0;
-    if(wStock <= 0) {
-        showAlert('"' + p.name + '" ဂိုထောင်ထဲမှာ stock မရှိပါဘူး!', '🏭 Empty');
-        return;
-    }
-    _warehouseLoadIdx = idx;
-    let body = document.getElementById('warehouse-load-body');
-    if(body) {
-        body.innerHTML =
-            '<p style="font-weight:bold;font-size:16px;margin-bottom:8px;">' + p.name + '</p>' +
-            '<div style="display:flex;gap:12px;margin-bottom:16px;">' +
-                '<div style="flex:1;background:#e3f1ff;padding:12px;border-radius:12px;text-align:center;">' +
-                    '<div style="font-size:11px;color:#555;">🏭 ဂိုထောင်ကျန်</div>' +
-                    '<b style="font-size:22px;color:#1e88e5;">' + wStock + '</b>' +
-                '</div>' +
-                '<div style="flex:1;background:#e8f8ec;padding:12px;border-radius:12px;text-align:center;">' +
-                    '<div style="font-size:11px;color:#555;">🚐 ကားပေါ်ရှိ</div>' +
-                    '<b style="font-size:22px;color:#2e7d32;">' + (p.stock||0) + '</b>' +
-                '</div>' +
-            '</div>' +
-            '<label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">တင်မယ့် အရေအတွက်</label>' +
-            '<input type="number" inputmode="numeric" id="load-qty-input" placeholder="အရေအတွက်" min="1" max="' + wStock + '" style="font-size:18px;text-align:center;">';
-    }
-    let modal = document.getElementById('warehouse-load-modal');
-    if(modal) modal.classList.add('open');
-    setTimeout(function(){ let el = document.getElementById('load-qty-input'); if(el) el.focus(); }, 200);
+function openLoadToCarModal(idx){
+    let p=products[idx],wS=p.warehouseStock||0;
+    if(wS<=0){showAlert('"'+p.name+'" ဂိုထောင်ထဲမှာ stock မရှိပါဘူး!','🏭 Empty');return;}
+    _whLIdx=idx;
+    let body=document.getElementById('warehouse-load-body');
+    if(body)body.innerHTML='<p style="font-weight:bold;font-size:16px;margin-bottom:8px;">'+p.name+'</p><div style="display:flex;gap:12px;margin-bottom:16px;"><div style="flex:1;background:#e3f1ff;padding:12px;border-radius:12px;text-align:center;"><div style="font-size:11px;color:#555;">🏭 ဂိုထောင်ကျန်</div><b style="font-size:22px;color:#1e88e5;">'+wS+'</b></div><div style="flex:1;background:#e8f8ec;padding:12px;border-radius:12px;text-align:center;"><div style="font-size:11px;color:#555;">🚐 ကားပေါ်ရှိ</div><b style="font-size:22px;color:#2e7d32;">'+(p.stock||0)+'</b></div></div><label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">တင်မယ့် အရေအတွက်</label><input type="number" inputmode="numeric" id="load-qty-input" placeholder="အရေအတွက်" min="1" max="'+wS+'" style="font-size:18px;text-align:center;">';
+    let m=document.getElementById('warehouse-load-modal');if(m)m.classList.add('open');
+    setTimeout(function(){let el=document.getElementById('load-qty-input');if(el)el.focus();},200);
 }
-
-function closeLoadModal() {
-    let modal = document.getElementById('warehouse-load-modal');
-    if(modal) modal.classList.remove('open');
-    _warehouseLoadIdx = -1;
+function closeLoadModal(){let m=document.getElementById('warehouse-load-modal');if(m)m.classList.remove('open');_whLIdx=-1;}
+function confirmLoadToCar(){
+    let idx=_whLIdx;if(idx<0||idx>=products.length)return;
+    let qty=parseInt(document.getElementById('load-qty-input').value)||0,wS=products[idx].warehouseStock||0;
+    if(qty<=0){showAlert('အရေအတွက် ထည့်ပါ!','Missing');return;}
+    if(qty>wS){showAlert('ဂိုထောင်ထဲမှာ '+wS+' ခုပဲ ရှိတော့တယ်!','Stock Limit');return;}
+    products[idx].warehouseStock=wS-qty;products[idx].stock=(products[idx].stock||0)+qty;
+    localStorage.setItem('products',JSON.stringify(products));closeLoadModal();renderWarehouseList();renderLists();
+    showAlert(products[idx].name+' — '+qty+' ခု ကားပေါ်တင်ပြီး ✅\n🏭 ဂိုထောင်ကျန်: '+products[idx].warehouseStock+' ခု\n🚐 ကားပေါ်: '+products[idx].stock+' ခု','ပြီးပြီ');
 }
-
-function confirmLoadToCar() {
-    let idx = _warehouseLoadIdx;
-    if(idx < 0 || idx >= products.length) return;
-    let qty    = parseInt(document.getElementById('load-qty-input').value) || 0;
-    let wStock = products[idx].warehouseStock || 0;
-    if(qty <= 0)      { showAlert('အရေအတွက် ထည့်ပါ!', 'Missing'); return; }
-    if(qty > wStock)  { showAlert('ဂိုထောင်ထဲမှာ ' + wStock + ' ခုပဲ ရှိတော့တယ်!', 'Stock Limit'); return; }
-    products[idx].warehouseStock = wStock - qty;
-    products[idx].stock = (products[idx].stock || 0) + qty;
-    localStorage.setItem('products', JSON.stringify(products));
-    closeLoadModal();
-    renderWarehouseList();
-    renderLists();
-    showAlert(
-        products[idx].name + ' — ' + qty + ' ခု ကားပေါ်တင်ပြီး ✅\n\n' +
-        '🏭 ဂိုထောင်ကျန်: ' + products[idx].warehouseStock + ' ခု\n' +
-        '🚐 ကားပေါ်: ' + products[idx].stock + ' ခု',
-        'ပြီးပြီ'
-    );
+function openReceiveWarehouseModal(idx){
+    _whRIdx=idx;let p=products[idx];
+    let body=document.getElementById('warehouse-receive-body');
+    if(body)body.innerHTML='<p style="font-weight:bold;font-size:16px;margin-bottom:4px;">'+p.name+'</p><p style="color:#666;font-size:12px;margin-bottom:16px;">လက်ရှိ ဂိုထောင်: <b>'+(p.warehouseStock||0)+'</b> ခု</p><label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">ထည့်မယ့် အရေအတွက် *</label><input type="number" inputmode="numeric" id="wh-receive-qty" placeholder="အရေအတွက်" style="margin-bottom:14px;"><label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">Cost တစ်ခုဈေး (ပြင်ချင်မှ ထည့်ပါ)</label><input type="number" inputmode="decimal" id="wh-receive-cost" placeholder="ဗလာ = '+(p.cost||0).toLocaleString()+' K အတိုင်း">';
+    let m=document.getElementById('warehouse-receive-modal');if(m)m.classList.add('open');
+    setTimeout(function(){let el=document.getElementById('wh-receive-qty');if(el)el.focus();},200);
 }
-
-function openReceiveWarehouseModal(idx) {
-    _warehouseReceiveIdx = idx;
-    let p    = products[idx];
-    let body = document.getElementById('warehouse-receive-body');
-    if(body) {
-        body.innerHTML =
-            '<p style="font-weight:bold;font-size:16px;margin-bottom:4px;">' + p.name + '</p>' +
-            '<p style="color:#666;font-size:12px;margin-bottom:16px;">လက်ရှိ ဂိုထောင်: <b>' + (p.warehouseStock||0) + '</b> ခု</p>' +
-            '<label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">ထည့်မယ့် အရေအတွက် *</label>' +
-            '<input type="number" inputmode="numeric" id="wh-receive-qty" placeholder="အရေအတွက်" style="margin-bottom:14px;">' +
-            '<label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">Cost တစ်ခုဈေး (ပြင်ချင်မှ ထည့်ပါ)</label>' +
-            '<input type="number" inputmode="decimal" id="wh-receive-cost" placeholder="ဗလာ = ' + (p.cost||0).toLocaleString() + ' K အတိုင်း">';
-    }
-    let modal = document.getElementById('warehouse-receive-modal');
-    if(modal) modal.classList.add('open');
-    setTimeout(function(){ let el = document.getElementById('wh-receive-qty'); if(el) el.focus(); }, 200);
+function closeReceiveModal(){let m=document.getElementById('warehouse-receive-modal');if(m)m.classList.remove('open');_whRIdx=-1;}
+function confirmReceiveWarehouse(){
+    let idx=_whRIdx;if(idx<0||idx>=products.length)return;
+    let qty=parseInt(document.getElementById('wh-receive-qty').value)||0,newCost=parseFloat(document.getElementById('wh-receive-cost').value);
+    if(qty<=0){showAlert('အရေအတွက် ထည့်ပါ!','Missing');return;}
+    products[idx].warehouseStock=(products[idx].warehouseStock||0)+qty;
+    if(!isNaN(newCost)&&newCost>0)products[idx].cost=newCost;
+    localStorage.setItem('products',JSON.stringify(products));closeReceiveModal();renderWarehouseList();renderLists();
+    showAlert(products[idx].name+' — '+qty+' ခု ဂိုထောင်ထည့်ပြီး ✅\n🏭 ဂိုထောင်ကျန်: '+products[idx].warehouseStock+' ခု'+(!isNaN(newCost)&&newCost>0?'\nCost အသစ်: '+newCost.toLocaleString()+' K':''),'ပြီးပြီ');
 }
-
-function closeReceiveModal() {
-    let modal = document.getElementById('warehouse-receive-modal');
-    if(modal) modal.classList.remove('open');
-    _warehouseReceiveIdx = -1;
-}
-
-function confirmReceiveWarehouse() {
-    let idx = _warehouseReceiveIdx;
-    if(idx < 0 || idx >= products.length) return;
-    let qty     = parseInt(document.getElementById('wh-receive-qty').value) || 0;
-    let newCost = parseFloat(document.getElementById('wh-receive-cost').value);
-    if(qty <= 0) { showAlert('အရေအတွက် ထည့်ပါ!', 'Missing'); return; }
-    products[idx].warehouseStock = (products[idx].warehouseStock || 0) + qty;
-    if(!isNaN(newCost) && newCost > 0) products[idx].cost = newCost;
-    localStorage.setItem('products', JSON.stringify(products));
-    closeReceiveModal();
-    renderWarehouseList();
-    renderLists();
-    showAlert(
-        products[idx].name + ' — ' + qty + ' ခု ဂိုထောင်ထည့်ပြီး ✅\n\n' +
-        '🏭 ဂိုထောင်ကျန်: ' + products[idx].warehouseStock + ' ခု' +
-        (!isNaN(newCost) && newCost > 0 ? '\nCost အသစ်: ' + newCost.toLocaleString() + ' K' : ''),
-        'ပြီးပြီ'
-    );
-}
-
-function endOfDayReturn() {
-    let lines = [], total = 0;
-    for(let i = 0; i < products.length; i++) {
-        let s = products[i].stock || 0;
-        if(s > 0) { lines.push('• ' + products[i].name + ': ' + s + ' ခု'); total += s; }
-    }
-    if(lines.length === 0) { showAlert('ကားပေါ်မှာ ပစ္စည်းမရှိတော့ပါဘူး', '🚐 Empty'); return; }
-    showConfirm(
-        '🌙 နေ့ပိတ် ဂိုထောင်ပြန်သိမ်း\n\nကားပေါ်ကျန်တာ:\n' + lines.join('\n') +
-        '\n\nစုစုပေါင်း ' + total + ' ခု ဂိုထောင်ပြန်ဝင်မည်\nဆက်လုပ်မှာလား?',
-        '🌙 ပြန်သိမ်းမည်',
-        function(result) {
-            if(!result) return;
-            for(let i = 0; i < products.length; i++) {
-                let s = products[i].stock || 0;
-                if(s > 0) {
-                    products[i].warehouseStock = (products[i].warehouseStock || 0) + s;
-                    products[i].stock = 0;
-                }
-            }
-            localStorage.setItem('products', JSON.stringify(products));
-            renderWarehouseList();
-            renderLists();
-            showAlert('ကားပေါ်ကျန်တာ အားလုံး ဂိုထောင်ပြန်ဝင်ပြီး ✅\nနက်ဖြန် ဂိုထောင် tab ကနေ ကားပေါ်တင်ပါ။', 'ပြီးပြီ');
-        }
-    );
+function endOfDayReturn(){
+    let lines=[],total=0;
+    for(let i=0;i<products.length;i++){let s=products[i].stock||0;if(s>0){lines.push('• '+products[i].name+': '+s+' ခု');total+=s;}}
+    if(lines.length===0){showAlert('ကားပေါ်မှာ ပစ္စည်းမရှိတော့ပါဘူး','🚐 Empty');return;}
+    showConfirm('🌙 နေ့ပိတ် ဂိုထောင်ပြန်သိမ်း\n\nကားပေါ်ကျန်တာ:\n'+lines.join('\n')+'\n\nစုစုပေါင်း '+total+' ခု ဂိုထောင်ပြန်ဝင်မည်\nဆက်လုပ်မှာလား?','🌙 ပြန်သိမ်းမည်',function(r){
+        if(!r)return;
+        for(let i=0;i<products.length;i++){let s=products[i].stock||0;if(s>0){products[i].warehouseStock=(products[i].warehouseStock||0)+s;products[i].stock=0;}}
+        localStorage.setItem('products',JSON.stringify(products));renderWarehouseList();renderLists();
+        showAlert('ကားပေါ်ကျန်တာ အားလုံး ဂိုထောင်ပြန်ဝင်ပြီး ✅\nနက်ဖြန် ဂိုထောင် tab ကနေ ကားပေါ်တင်ပါ။','ပြီးပြီ');
+    });
 }
 
 // ========== CUSTOMERS ==========
@@ -1579,6 +1482,80 @@ function backupToExcel() {
     }
 }
 
+function backupToJSON() {
+    // Gather all app data into one object
+    let data = {
+        _version: 2,
+        _app: "SIT MHAN Distribution",
+        _date: new Date().toISOString().slice(0, 10),
+        products: products,
+        customers: customers,
+        salesHistory: salesHistory,
+        expenses: JSON.parse(localStorage.getItem('expenses') || '[]')
+    };
+
+    let json = JSON.stringify(data, null, 2);
+    let blob = new Blob([json], { type: 'application/json' });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement('a');
+    let dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = 'SIT-MHAN-backup-' + dateStr + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showAlert('JSON Backup ထုတ်ပြီး ✅\n\nဖိုင်နာမည်: SIT-MHAN-backup-' + dateStr + '.json\n\nProducts: ' + products.length + ' ခု\nCustomers: ' + customers.length + ' ဦး\nSales: ' + salesHistory.length + ' ကြိမ်', 'Backup ပြီးပြီ');
+}
+
+function restoreFromJSON(event) {
+    let file = event.target.files[0];
+    if(!file) return;
+    if(!file.name.endsWith('.json')) {
+        showAlert('JSON ဖိုင် (.json) ကိုသာ ရွေးပါ!', 'ဖိုင်မမှန်ဘူး');
+        event.target.value = '';
+        return;
+    }
+    let reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            let data = JSON.parse(e.target.result);
+            // Validate structure
+            if(!data._app || !data.products || !data.salesHistory) {
+                showAlert('ဒီဖိုင်က SIT MHAN backup ဖိုင်မဟုတ်ပါဘူး!', 'ဖိုင်မမှန်ဘူး');
+                return;
+            }
+            let summary = '📂 JSON Restore လုပ်မည်\n\n' +
+                'Backup ရက်: ' + (data._date || 'မသိ') + '\n' +
+                'Products: ' + data.products.length + ' ခု\n' +
+                'Customers: ' + (data.customers || []).length + ' ဦး\n' +
+                'Sales: ' + data.salesHistory.length + ' ကြိမ်\n\n' +
+                '⚠️ လက်ရှိ data အားလုံး အစားထိုးမည်\nဆက်လုပ်မှာလား?';
+            showConfirm(summary, '📂 Restore မည်', function(result) {
+                if(!result) return;
+                // Restore all data
+                products = data.products || [];
+                customers = data.customers || [];
+                salesHistory = data.salesHistory || [];
+                localStorage.setItem('products', JSON.stringify(products));
+                localStorage.setItem('customers', JSON.stringify(customers));
+                localStorage.setItem('salesHistory', JSON.stringify(salesHistory));
+                if(data.expenses) {
+                    localStorage.setItem('expenses', JSON.stringify(data.expenses));
+                }
+                renderLists();
+                renderReports();
+                renderHome();
+                showAlert('Restore ပြီး ✅\n\nProducts: ' + products.length + ' ခု\nCustomers: ' + customers.length + ' ဦး\nSales: ' + salesHistory.length + ' ကြိမ်', 'ပြီးပြီ');
+            });
+        } catch(err) {
+            showAlert('JSON ဖိုင် ဖတ်မရဘူး — ဖိုင်ပျက်နေနိုင်ပါတယ်!\n(' + err.message + ')', 'Error');
+        }
+        event.target.value = '';
+    };
+    reader.readAsText(file);
+}
+
 function restoreData(event) {
     let file = event.target.files[0];
     if(!file) {
@@ -1618,14 +1595,13 @@ function restoreData(event) {
                 if(currentSection === "products" && line.includes(",") && !line.startsWith("Name")) {
                     let parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
                     if(parts.length >= 5) {
-                        let hasWarehouse = parts.length >= 6;
                         newProducts.push({
                             name: parts[0].replace(/"/g, ""),
                             price: parseFloat(parts[1]) || 0,
                             cost: parseFloat(parts[2]) || 0,
                             stock: parseInt(parts[3]) || 0,
-                            warehouseStock: hasWarehouse ? (parseInt(parts[4]) || 0) : 0,
-                            alertLimit: hasWarehouse ? (parseInt(parts[5]) || 5) : (parseInt(parts[4]) || 5)
+                            warehouseStock: parts.length >= 6 ? (parseInt(parts[4]) || 0) : 0,
+                            alertLimit: parts.length >= 6 ? (parseInt(parts[5]) || 5) : (parseInt(parts[4]) || 5)
                         });
                     }
                 } else if(currentSection === "customers" && line.includes(",") && !line.startsWith("Name")) {
